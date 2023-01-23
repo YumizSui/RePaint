@@ -175,8 +175,29 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--conf_path', type=str, required=False, default=None)
     parser.add_argument('--gpuid', type=int, default=0)
-    args = vars(parser.parse_args())
+    parser.add_argument('--schedule_path', type=str, required=True, default=None)
 
+    parser.add_argument('--gt_path', type=str, required=True, default=None)
+    parser.add_argument('--mask_path', type=str, required=True, default=None)
+    parser.add_argument('--out_path', type=str, required=True, default=None)
+    
+    parser.add_argument('--write_image', action='store_true', default=False)
+    args = vars(parser.parse_args())
+    
     conf_arg = conf_mgt.conf_base.Default_Conf()
-    conf_arg.update(yamlread(args.get('conf_path')))
+    yamldict=yamlread(args.get('conf_path'))
+    yamldict['schedule_jump_params']['my_schedule']=args['schedule_path']
+    yamldict['schedule_jump_params']['write_image']=args['write_image']
+    
+    key=list(yamldict['data']['eval'].keys())[0]
+
+    yamldict['data']['eval'][key]['gt_path'] = args['gt_path']
+    yamldict['data']['eval'][key]['mask_path'] = args['mask_path']
+    outpath=args['out_path']
+    yamldict['data']['eval'][key]['paths']={}
+    yamldict['data']['eval'][key]['paths']['srs']=f'{outpath}/inpainted'
+    yamldict['data']['eval'][key]['paths']['lrs']=f'{outpath}/gt_masked'
+    yamldict['data']['eval'][key]['paths']['gts']=f'{outpath}/gt'
+    yamldict['data']['eval'][key]['paths']['gt_keep_masks']=f'{outpath}/gt_keep_mask'
+    conf_arg.update(yamldict)
     main(conf_arg,args)

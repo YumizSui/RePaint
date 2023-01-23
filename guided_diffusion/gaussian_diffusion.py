@@ -29,6 +29,17 @@ import torch as th
 from collections import defaultdict
 
 from guided_diffusion.scheduler import get_schedule_jump
+from conf_mgt.conf_base import write_images
+
+def toU8(sample):
+    if sample is None:
+        return sample
+
+    sample = ((sample + 1) * 127.5).clamp(0, 255).to(th.uint8)
+    sample = sample.permute(0, 2, 3, 1)
+    sample = sample.contiguous()
+    sample = sample.detach().cpu().numpy()
+    return sample
 
 def get_named_beta_schedule(schedule_name, num_diffusion_timesteps, use_scale):
     """
@@ -166,7 +177,7 @@ class GaussianDiffusion:
             * np.sqrt(alphas)
             / (1.0 - self.alphas_cumprod)
         )
-
+        
     def undo(self, image_before_step, img_after_model, est_x_0, t, debug=False):
         return self._undo(img_after_model, t)
 
@@ -358,10 +369,12 @@ class GaussianDiffusion:
 
                 alpha_cumprod = _extract_into_tensor(
                     self.alphas_cumprod, t, x.shape)
-
                 if conf.inpa_inj_sched_prev_cumnoise:
                     weighed_gt = self.get_gt_noised(gt, int(t[0].item()))
                 else:
+                    # print('alpha_cumprod',self.alphas_cumprod.shape)
+                    # print('alpha_cumprod',self.alphas_cumprod.shape, t, x.shape)
+
                     gt_weight = th.sqrt(alpha_cumprod)
                     gt_part = gt_weight * gt
 
@@ -486,9 +499,37 @@ class GaussianDiffusion:
         assert isinstance(shape, (tuple, list))
         if noise is not None:
             image_after_step = noise
+        elif conf.get('noised', False):
+            gt0 = model_kwargs['gt']
+            gt_keep_mask0 = model_kwargs.get('gt_keep_mask')
+            gt0 = gt0
+            if conf.get('write_image', False):
+                write_images(toU8(gt0),[f'g0.png'], 'log/tmp', is_dt=False)
+
+            t0=conf.schedule_jump_params['t_T']-1
+            t0 = th.tensor([t0] * shape[0],  # pylint: disable=not-callable
+                                     device=device)
+            alpha_cumprod = _extract_into_tensor(
+                    self.alphas_cumprod, t0, gt0.shape)
+            # print('alpha_cumprod',alpha_cumprod.shape)
+            # print('alpha_cumprod',self.alphas_cumprod, t0, gt0.shape)
+            # alpha_cumprod = 1
+            gt_weight = th.sqrt(alpha_cumprod)
+            gt_part = gt_weight * gt0
+
+            noise_weight = th.sqrt((1 - alpha_cumprod))
+            noise_part = noise_weight * th.randn_like(gt0)
+            noise=th.randn(*shape, device=device)
+            weighed_gt = (gt_part + noise_part)*gt_keep_mask0 + (noise)*(1-gt_keep_mask0)
+            image_after_step = weighed_gt
+            del gt0, gt_keep_mask0, t0, alpha_cumprod, gt_weight, gt_part
+            del noise_weight, noise_part, weighed_gt
         else:
             image_after_step = th.randn(*shape, device=device)
-
+        imidx=0
+        if conf.get('write_image', False):
+            write_images(toU8(image_after_step),[f'img-{imidx}.png'], 'log/tmp', is_dt=False)
+        imidx+=1
         debug_steps = conf.pget('debug.num_timesteps')
 
         self.gt_noises = None  # reset for next image
@@ -500,7 +541,10 @@ class GaussianDiffusion:
         sample_idxs = defaultdict(lambda: 0)
 
         if conf.schedule_jump_params:
-            times = get_schedule_jump(**conf.schedule_jump_params)
+            if conf.schedule_jump_params.get('my_schedule'):
+                times = np.load(conf.schedule_jump_params['my_schedule'])
+            else:
+                times = get_schedule_jump(**conf.schedule_jump_params)
 
             time_pairs = list(zip(times[:-1], times[1:]))
             if progress:
@@ -541,6 +585,9 @@ class GaussianDiffusion:
                         image_before_step, image_after_step,
                         est_x_0=out['pred_xstart'], t=t_last_t+t_shift, debug=False)
                     pred_xstart = out["pred_xstart"]
+                if conf.get('write_image', False):
+                    write_images(toU8(image_after_step),[f'img-{imidx}.png'], 'log/tmp', is_dt=False)
+                imidx+=1
 
 def _extract_into_tensor(arr, timesteps, broadcast_shape):
     """

@@ -22,6 +22,9 @@ from utils import imwrite
 from collections import defaultdict
 from os.path import isfile, expanduser
 
+import datetime
+dt=datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+
 def to_file_ext(img_names, ext):
     img_names_out = []
     for img_name in img_names:
@@ -32,10 +35,12 @@ def to_file_ext(img_names, ext):
 
     return img_names_out
 
-def write_images(imgs, img_names, dir_path):
+def write_images(imgs, img_names, dir_path, is_dt=False):
     os.makedirs(dir_path, exist_ok=True)
 
     for image_name, image in zip(img_names, imgs):
+        if is_dt:
+            image_name='{}-{}.png'.format(image_name.replace('.png',''), dt)
         out_path = os.path.join(dir_path, image_name)
         imwrite(img=image, path=out_path)
 
@@ -80,7 +85,6 @@ class Default_Conf(NoneDict):
 
     def eval_imswrite(self, srs=None, img_names=None, dset=None, name=None, ext='png', lrs=None, gts=None, gt_keep_masks=None, verify_same=True):
         img_names = to_file_ext(img_names, ext)
-
         if dset is None:
             dset = self.get_default_eval_name()
 
